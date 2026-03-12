@@ -57,17 +57,21 @@ def Fileupload():
     # first the tsv file containing the IBD segments
     IBDtsv = st.file_uploader("Choose your IBD file in tsv format:", type=["tsv"])
 
-    if IBDtsv:              # if the file exists read its content into a pandas df
+    if IBDtsv is None:              # if the file does not exist, issue a warning
+        st.warning("Please upload a IBD file.")
+        st.stop()
+    else:                           # else load it into a pandas df
         IBDdf = pd.read_csv(IBDtsv, sep="\t")
 
     # then the excel file containing the location and population information
     LocationXlxs = st.file_uploader("Choose your Excel file with location/population information:",
                                     type=["xlsx"])
-
-    if LocationXlxs:    # if the file exists load it into a pandas df
+    if LocationXlxs is None:        # if the file does not exist, issue a warning and halt the code
+        st.warning("Please upload a location file.")
+        st.stop()
+    else:                           # if the file exists load it into a pandas df
         Locationdf = pd.read_excel(LocationXlxs, header = 0)
-        Locationdf = Locationdf[~Locationdf["Lat."].isin(['..'])]           # delete all rows where latitude = '..'
-        Locationdf = Locationdf[~Locationdf["Long."].isin(['..'])]          # delete all rows where longiture = '..'
+        Locationdf = Locationdf.replace("..", pd.NA)                        # replace '..' with NA
         Locationdf["Lat."] = pd.to_numeric(Locationdf["Lat."], errors="coerce")         # make sure the whole lat column is numeric
         Locationdf["Long."] = pd.to_numeric(Locationdf["Long."], errors="coerce")       # make sure the whole long column is numeric
         Locationdf = Locationdf.dropna(subset=["Lat.", "Long."])            # delete all na that might have been created in the previous step
@@ -85,7 +89,7 @@ Next implementation: let the user choose an era and select by country
 
 
 def SelectandFilter(Locationdf):
-    
+    # the variable timeFrame saves the user input on which period of time they want to look at
     timeFrame = st.selectbox('Select Time Period:', ['Prehistory (before 5000 BCE)',
                                                      'Stone Age (5000 - 3000 BCE)',
                                                      'Bronze Age (3000 - 1000 BCE)',
@@ -94,7 +98,7 @@ def SelectandFilter(Locationdf):
                                                      'Middle Ages (500 - 1500 CE)',
                                                      'Modern Period (1500 to now)'], index=0)
 
-    if timeFrame is not None:
+    if timeFrame is not None:                       # if the user has selected a time frame, the following statements filter the Locationdf by date of the individual and put out a filtered dataframe
         st.write(Locationdf)
         if timeFrame == 'Prehistory (before 5000 BCE)':
             Locationdf_filtered=Locationdf[Locationdf["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]>=7000]
@@ -116,10 +120,10 @@ def SelectandFilter(Locationdf):
         elif timeFrame == 'Modern Period (1500 to now)':
             Locationdf_filtered = Locationdf[Locationdf["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]<=500]
         
-        st.write(Locationdf_filtered)
+        st.write(Locationdf_filtered)                           # write the current filtered dataframe to check
     
     popList = st.multiselect(                                   # ask the user to select populations from all populations in the file
-        "Second, select populations you want to display:",
+        "Select populations you want to display:",
         options=Locationdf_filtered["Political Entity"].unique(),
         default=None)
     Locationdf_filtered = Locationdf_filtered[Locationdf_filtered["Political Entity"].isin(popList)]      # filter the Locationdf to only contain selected populations
@@ -137,6 +141,15 @@ def SelectandFilter(Locationdf):
 def MapCreator(IBDdf, Locationdf_filtered):
     SubsetLocationdf = Locationdf_filtered[["lat", "lon"]]          # first create a subset of the Locationdf to only contain latitude and longitude
     st.write(SubsetLocationdf)
+    st.write("Map creation started")
+    SubsetLocationdf = SubsetLocationdf[SubsetLocationdf["lat"].notna()]
+    SubsetLocationdf = SubsetLocationdf[SubsetLocationdf["lon"].notna()]
+    if SubsetLocationdf.empty:
+        st.warning("No individuals selected to display on the map.")
+        return
+    datatype = SubsetLocationdf["lon"].dtype
+    st.write("datatype investigated")
+    datatype
     # Generate the map point layer
     if SubsetLocationdf is not None:                                # if the Subsetlocationdf is not None
         pointLayer = pdk.Layer(                                     # create the point layer of the PyDeck
@@ -144,7 +157,7 @@ def MapCreator(IBDdf, Locationdf_filtered):
             data=SubsetLocationdf,                                  # using Subsetlocationdf as data
             get_position = '[lon, lat]',                            # the lon and lat columns as data points
             get_radius = 10000,                                     # get a point radius of 10000
-            get_fill_color = [255, 0, 0])                           # make them green
+            get_fill_color = [0, 255, 0])                           # make them green
         view_state = pdk.ViewState(                                 # specify the initial viewstate
             latitude=float(SubsetLocationdf["lat"].mean()),         # as the mean of the lat and long coordinates of the plotted points
             longitude=float(SubsetLocationdf["lon"].mean()),
@@ -159,8 +172,8 @@ def MapCreator(IBDdf, Locationdf_filtered):
 
 IBDdf, Locationdf = Fileupload()
 
-if IBDdf is not None and Locationdf is not None:
-    Locationdf_filtered = SelectandFilter(Locationdf)
-    st.write(Locationdf_filtered)
-    st.write(IBDdf)  
-    MapCreator(IBDdf, Locationdf_filtered)
+Locationdf_filtered = SelectandFilter(Locationdf)
+st.write(Locationdf_filtered)
+st.write(IBDdf)  
+st.write("Going into map creation now")
+MapCreator(IBDdf, Locationdf_filtered)
