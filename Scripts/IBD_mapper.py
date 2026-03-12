@@ -51,7 +51,7 @@ import pydeck as pdk
 
 def Fileupload():
     
-    IBDdf = None
+    IBDdf = None            # initialise empty variables
     Locationdf = None
     
     # first the tsv file containing the IBD segments
@@ -61,48 +61,76 @@ def Fileupload():
         IBDdf = pd.read_csv(IBDtsv, sep="\t")
 
     # then the excel file containing the location and population information
-
     LocationXlxs = st.file_uploader("Choose your Excel file with location/population information:",
                                     type=["xlsx"])
 
     if LocationXlxs:    # if the file exists load it into a pandas df
         Locationdf = pd.read_excel(LocationXlxs, header = 0)
+        Locationdf = Locationdf[~Locationdf["Lat."].isin(['..'])]           # delete all rows where latitude = '..'
+        Locationdf = Locationdf[~Locationdf["Long."].isin(['..'])]          # delete all rows where longiture = '..'
+        Locationdf["Lat."] = pd.to_numeric(Locationdf["Lat."], errors="coerce")         # make sure the whole lat column is numeric
+        Locationdf["Long."] = pd.to_numeric(Locationdf["Long."], errors="coerce")       # make sure the whole long column is numeric
+        Locationdf = Locationdf.dropna(subset=["Lat.", "Long."])            # delete all na that might have been created in the previous step
+        Locationdf = Locationdf.rename(columns={                            # for simplicity rename the columns
+        "Lat.": "lat",
+        "Long.": "lon"})
 
-    return IBDdf, Locationdf
+    return IBDdf, Locationdf                                                # return the df IBDdf and Locationdf
+
+
+## Before displaying the map we ask the User to select populations/individuals ##
+
+def SelectandFilter(Locationdf):
+    popList = st.multiselect(                                   # ask the user to select populations from all populations in the file
+        "First, select populations you want to display:",
+        options=Locationdf["Locality"].unique(),
+        default=None
+    )
+    Locationdf_filtered = Locationdf[Locationdf["Locality"].isin(popList)]      # filter the Locationdf to only contain selected populations
+    
+    if popList is not None:                                     # ask the user to specify which individuals to compare from the above selected populations
+        indivList = st.multiselect(
+            "Now selecet specific individuals to display (or all):",
+            options=Locationdf_filtered["Master ID"].unique(),
+            default=None
+        )
+        Locationdf_filtered = Locationdf_filtered[Locationdf_filtered["Master ID"].isin(indivList)]     # filter the dataset further to only contain the individuals
+    return Locationdf_filtered
+
+
+## render a map with all datapoints ##
+def MapCreator(IBDdf, Locationdf_filtered):
+
+    SubsetLocationdf = Locationdf_filtered[["lat", "lon"]]          # first create a subset of the Locationdf to only contain latitude and longitude
+    st.write(SubsetLocationdf)
+    # Generate the map point layer
+    if SubsetLocationdf is not None:                                # if the Subsetlocationdf is not None
+        pointLayer = pdk.Layer(                                     # create the point layer of the PyDeck
+            "ScatterplotLayer", 
+            data=SubsetLocationdf,                                  # using Subsetlocationdf as data
+            get_position = '[lon, lat]',                            # the lon and lat columns as data points
+            get_radius = 10000,                                     # get a point radius of 10000
+            get_fill_color = [0, 255, 0],                           # make them green
+        )
+
+        view_state = pdk.ViewState(                                 # specify the initial viewstate
+            latitude=float(SubsetLocationdf["lat"].mean()),         # as the mean of the lat and long coordinates of the plotted points
+            longitude=float(SubsetLocationdf["lon"].mean()),
+            zoom=5)
+
+        st.pydeck_chart(                                            # finally create the map using the above specified layers
+            pdk.Deck(
+                layers=[pointLayer], 
+                initial_view_state=view_state))
+        
+
+## Finally run all pre defined functions step by step
 
 IBDdf, Locationdf = Fileupload()
-IBDdf
-Locationdf
-## render a map with all datapoints ##
-Locationdf["Lat."] = pd.to_numeric(Locationdf["Lat."], errors="coerce")
-Locationdf["Long."] = pd.to_numeric(Locationdf["Long."], errors="coerce")
-Locationdf = Locationdf.dropna(subset=["Lat.", "Long."])
-Locationdf = Locationdf.rename(columns={
-    "Lat.": "lat",
-    "Long.": "lon"})
 
-SubsetLocationdf = Locationdf[["lat", "lon"]]
-
-st.write(type(Locationdf))
-st.write(Locationdf.head())
-st.write(Locationdf.dtypes)
-
-# Generate the map point layer
-if SubsetLocationdf is not None:
-    pointLayer = pdk.Layer(
-        "ScatterplotLayer", 
-        data=SubsetLocationdf,
-        get_position = '[lon, lat]',
-        get_radius = 10000,
-        get_fill_color = [255, 0, 0],
-    )
-
-    view_state = pdk.ViewState(
-        latitude=float(SubsetLocationdf["lat"].mean()),
-        longitude=float(SubsetLocationdf["lon"].mean()),
-        zoom=5)
-
-    st.pydeck_chart(
-        pdk.Deck(
-            layers=[pointLayer], 
-            initial_view_state=view_state))
+if IBDdf is not None and Locationdf is not None:
+    Locationdf_filtered = SelectandFilter(Locationdf)
+    st.write(Locationdf_filtered)
+    st.write(IBDdf)
+    if Locationdf_filtered is not None:   
+        MapCreator(IBDdf, Locationdf_filtered)
