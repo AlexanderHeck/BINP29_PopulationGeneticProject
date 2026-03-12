@@ -79,28 +79,62 @@ def Fileupload():
 
 
 ## Before displaying the map we ask the User to select populations/individuals ##
+'''
+Next implementation: let the user choose an era and select by country
+'''
+
 
 def SelectandFilter(Locationdf):
+    
+    timeFrame = st.selectbox('Select Time Period:', ['Prehistory (before 5000 BCE)',
+                                                     'Stone Age (5000 - 3000 BCE)',
+                                                     'Bronze Age (3000 - 1000 BCE)',
+                                                     'Iron Age (1000 - 550 BCE)',
+                                                     'Antiquity (550 BCE - 500 CE)',
+                                                     'Middle Ages (500 - 1500 CE)',
+                                                     'Modern Period (1500 to now)'], index=0)
+
+    if timeFrame is not None:
+        st.write(Locationdf)
+        if timeFrame == 'Prehistory (before 5000 BCE)':
+            Locationdf_filtered=Locationdf[Locationdf["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]>=7000]
+        elif timeFrame == 'Stone Age (5000 - 3000 BCE)':
+            Locationdf_filtered = Locationdf[Locationdf["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]<=7000]
+            Locationdf_filtered = Locationdf_filtered[Locationdf_filtered["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]>=5000]
+        elif timeFrame == 'Bronze Age (3000 - 1000 BCE)':
+            Locationdf_filtered = Locationdf[Locationdf["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]<=5000]
+            Locationdf_filtered = Locationdf_filtered[Locationdf_filtered["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]>=3000]
+        elif timeFrame == 'Iron Age (1000 - 550 BCE)':
+            Locationdf_filtered = Locationdf[Locationdf["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]<=3000]
+            Locationdf_filtered = Locationdf_filtered[Locationdf_filtered["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]>=2550]
+        elif timeFrame == 'Antiquity (550 BCE - 500 CE)':
+            Locationdf_filtered = Locationdf[Locationdf["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]<=2550]
+            Locationdf_filtered = Locationdf_filtered[Locationdf_filtered["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]>=1500]
+        elif timeFrame == 'Middle Ages (500 - 1500 CE)':
+            Locationdf_filtered = Locationdf[Locationdf["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]<=1500]
+            Locationdf_filtered = Locationdf_filtered[Locationdf_filtered["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]>=500]
+        elif timeFrame == 'Modern Period (1500 to now)':
+            Locationdf_filtered = Locationdf[Locationdf["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]<=500]
+        
+        st.write(Locationdf_filtered)
+    
     popList = st.multiselect(                                   # ask the user to select populations from all populations in the file
-        "First, select populations you want to display:",
-        options=Locationdf["Locality"].unique(),
-        default=None
-    )
-    Locationdf_filtered = Locationdf[Locationdf["Locality"].isin(popList)]      # filter the Locationdf to only contain selected populations
+        "Second, select populations you want to display:",
+        options=Locationdf_filtered["Political Entity"].unique(),
+        default=None)
+    Locationdf_filtered = Locationdf_filtered[Locationdf_filtered["Political Entity"].isin(popList)]      # filter the Locationdf to only contain selected populations
     
     if popList is not None:                                     # ask the user to specify which individuals to compare from the above selected populations
         indivList = st.multiselect(
             "Now selecet specific individuals to display (or all):",
             options=Locationdf_filtered["Master ID"].unique(),
-            default=None
-        )
+            default=None)
         Locationdf_filtered = Locationdf_filtered[Locationdf_filtered["Master ID"].isin(indivList)]     # filter the dataset further to only contain the individuals
     return Locationdf_filtered
 
 
 ## render a map with all datapoints ##
 def MapCreator(IBDdf, Locationdf_filtered):
-
     SubsetLocationdf = Locationdf_filtered[["lat", "lon"]]          # first create a subset of the Locationdf to only contain latitude and longitude
     st.write(SubsetLocationdf)
     # Generate the map point layer
@@ -110,14 +144,11 @@ def MapCreator(IBDdf, Locationdf_filtered):
             data=SubsetLocationdf,                                  # using Subsetlocationdf as data
             get_position = '[lon, lat]',                            # the lon and lat columns as data points
             get_radius = 10000,                                     # get a point radius of 10000
-            get_fill_color = [0, 255, 0],                           # make them green
-        )
-
+            get_fill_color = [255, 0, 0])                           # make them green
         view_state = pdk.ViewState(                                 # specify the initial viewstate
             latitude=float(SubsetLocationdf["lat"].mean()),         # as the mean of the lat and long coordinates of the plotted points
             longitude=float(SubsetLocationdf["lon"].mean()),
             zoom=5)
-
         st.pydeck_chart(                                            # finally create the map using the above specified layers
             pdk.Deck(
                 layers=[pointLayer], 
@@ -131,6 +162,5 @@ IBDdf, Locationdf = Fileupload()
 if IBDdf is not None and Locationdf is not None:
     Locationdf_filtered = SelectandFilter(Locationdf)
     st.write(Locationdf_filtered)
-    st.write(IBDdf)
-    if Locationdf_filtered is not None:   
-        MapCreator(IBDdf, Locationdf_filtered)
+    st.write(IBDdf)  
+    MapCreator(IBDdf, Locationdf_filtered)
