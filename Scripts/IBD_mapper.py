@@ -83,9 +83,6 @@ def Fileupload():
 
 
 ## Before displaying the map we ask the User to select populations/individuals ##
-'''
-Next implementation: let the user choose an era and select by country
-'''
 
 
 def SelectandFilter(Locationdf):
@@ -96,7 +93,7 @@ def SelectandFilter(Locationdf):
                                                      'Iron Age (1000 - 550 BCE)',
                                                      'Antiquity (550 BCE - 500 CE)',
                                                      'Middle Ages (500 - 1500 CE)',
-                                                     'Modern Period (1500 to now)'], index=0)
+                                                     'Modern Period (1500 to now)'], index=None)
 
     if timeFrame is not None:                       # if the user has selected a time frame, the following statements filter the Locationdf by date of the individual and put out a filtered dataframe
         st.write(Locationdf)
@@ -119,8 +116,11 @@ def SelectandFilter(Locationdf):
             Locationdf_filtered = Locationdf_filtered[Locationdf_filtered["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]>=500]
         elif timeFrame == 'Modern Period (1500 to now)':
             Locationdf_filtered = Locationdf[Locationdf["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]<=500]
-        
-        st.write(Locationdf_filtered)                           # write the current filtered dataframe to check
+        st.write(Locationdf_filtered)                           # write the current filtered dataframe to check    
+    else:
+        st.warning("Please select a time period.")
+        st.stop()    
+    
     
     popList = st.multiselect(                                   # ask the user to select populations from all populations in the file
         "Select populations you want to display:",
@@ -137,8 +137,36 @@ def SelectandFilter(Locationdf):
     return Locationdf_filtered
 
 
+## The following code extracts coordinates and matches them with IBD values if they have any
+'''
+Okay so what this function does, it makes a list of all to plot indiv. Then it goes through every line in the IBD file and checks that both  iid1 and 2 are present in the list,
+if so. If both are present it retrieves the length M, normalises it to values between 0 and 1 and adds a color, and returns the dataframe containing coordinates for each dataoint,
+IBD, normalised IBD, and a color
+'''
+
+def IBD_selector(Locationdf_filtered, IBDdf):
+    idList = Locationdf_filtered["Genetic ID"]
+    st.write(idList)
+    st.write(IBDdf)
+    IBDdf_filtered = IBDdf[IBDdf['iid1'].isin(idList) & IBDdf['iid2'].isin(idList)]
+    st.write('writing filtered ibdf')
+    st.write(IBDdf_filtered)
+    IBDperPair = IBDdf_filtered.groupby(["iid1", "iid2"])["lengthM"].sum()
+    IBDperPair = IBDperPair.reset_index()
+    st.write(IBDperPair)
+    coordsdf = Locationdf_filtered[['Genetic ID', 'lon', 'lat']]
+    st.write(coordsdf)
+    IBD_coordsdf = IBDperPair.merge(coordsdf, left_on='iid1', right_on='Genetic ID', how='left').drop(columns = 'Genetic ID')
+    st.write('First merge:')
+    st.write(IBD_coordsdf)
+    IBD_coordsdf = IBD_coordsdf.merge(coordsdf, left_on='iid2', right_on='Genetic ID', how='left', suffixes = ('1', '2')).drop(columns = 'Genetic ID')
+    st.write('2nd merge:')
+    st.write(IBD_coordsdf)
+    return IBD_coordsdf
+    
+
 ## render a map with all datapoints ##
-def MapCreator(IBDdf, Locationdf_filtered):
+def MapCreator(IBD_coordsdf, Locationdf_filtered):
     SubsetLocationdf = Locationdf_filtered[["lat", "lon"]]          # first create a subset of the Locationdf to only contain latitude and longitude
     st.write(SubsetLocationdf)
     st.write("Map creation started")
@@ -152,19 +180,29 @@ def MapCreator(IBDdf, Locationdf_filtered):
     datatype
     # Generate the map point layer
     if SubsetLocationdf is not None:                                # if the Subsetlocationdf is not None
+        lineLayer = pdk.Layer(
+            "LineLayer",
+            data=IBD_coordsdf,
+            get_source_position='[lon1, lat1]',
+            get_target_position='[lon2, lat2]',
+            get_color=[0, 255, 0],
+            get_width=1)
+        
         pointLayer = pdk.Layer(                                     # create the point layer of the PyDeck
             "ScatterplotLayer", 
             data=SubsetLocationdf,                                  # using Subsetlocationdf as data
             get_position = '[lon, lat]',                            # the lon and lat columns as data points
             get_radius = 10000,                                     # get a point radius of 10000
             get_fill_color = [0, 255, 0])                           # make them green
+        
         view_state = pdk.ViewState(                                 # specify the initial viewstate
             latitude=float(SubsetLocationdf["lat"].mean()),         # as the mean of the lat and long coordinates of the plotted points
             longitude=float(SubsetLocationdf["lon"].mean()),
             zoom=5)
+        
         st.pydeck_chart(                                            # finally create the map using the above specified layers
             pdk.Deck(
-                layers=[pointLayer], 
+                layers=[pointLayer, lineLayer], 
                 initial_view_state=view_state))
         
 
@@ -173,7 +211,19 @@ def MapCreator(IBDdf, Locationdf_filtered):
 IBDdf, Locationdf = Fileupload()
 
 Locationdf_filtered = SelectandFilter(Locationdf)
-st.write(Locationdf_filtered)
-st.write(IBDdf)  
+
+if Locationdf_filtered is not None:
+    IBD_coordsdf = IBD_selector(Locationdf_filtered, IBDdf)
+
 st.write("Going into map creation now")
-MapCreator(IBDdf, Locationdf_filtered)
+if IBD_coordsdf is not None and Locationdf_filtered is not None:
+    MapCreator(IBD_coordsdf, Locationdf_filtered)
+
+
+
+'''
+### Further Implemetation ###
+- Caching
+- Color coded IBD thickness
+- Further downstream filtering of strength of IBD connection using scale
+'''
