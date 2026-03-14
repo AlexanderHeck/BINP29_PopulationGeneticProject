@@ -84,7 +84,6 @@ def Fileupload():
 
 ## Before displaying the map we ask the User to select populations/individuals ##
 
-
 def SelectandFilter(Locationdf):
     # the variable timeFrame saves the user input on which period of time they want to look at
     timeFrame = st.selectbox('Select Time Period:', ['Prehistory (before 5000 BCE)',
@@ -143,7 +142,7 @@ Okay so what this function does, it makes a list of all to plot indiv. Then it g
 if so. If both are present it retrieves the length M, normalises it to values between 0 and 1 and adds a color, and returns the dataframe containing coordinates for each dataoint,
 IBD, normalised IBD, and a color
 '''
-
+@st.cache_data(ttl=3600)
 def IBD_selector(Locationdf_filtered, IBDdf):
     idList = Locationdf_filtered["Genetic ID"]
     st.write(idList)
@@ -164,8 +163,21 @@ def IBD_selector(Locationdf_filtered, IBDdf):
     st.write(IBD_coordsdf)
     return IBD_coordsdf
     
+## The follwing function adds a color column to the IBD_coordsdf dataframe ##
+
+def ColorAssigner(IBD_coordsdf):
+    # First normalise IBD values to scale from 0 to 1 according to the formula xnorm = (x - xmin)/(xmax-xmin)
+    minIBD = IBD_coordsdf['lengthM'].min()
+    maxIBD = IBD_coordsdf['lengthM'].max()
+    IBD_coordsdf['lengthM_norm'] = (IBD_coordsdf['lengthM']-minIBD)/(maxIBD-minIBD)
+
+    # Then assign continuous color values to each normalised IBD value
+    IBD_coordsdf['color'] = IBD_coordsdf['lengthM_norm'].apply(lambda x: [(1-x)*255, x*255 , 0])
+    st.write(IBD_coordsdf)
+    return IBD_coordsdf
 
 ## render a map with all datapoints ##
+
 def MapCreator(IBD_coordsdf, Locationdf_filtered):
     SubsetLocationdf = Locationdf_filtered[["lat", "lon"]]          # first create a subset of the Locationdf to only contain latitude and longitude
     st.write(SubsetLocationdf)
@@ -185,7 +197,7 @@ def MapCreator(IBD_coordsdf, Locationdf_filtered):
             data=IBD_coordsdf,
             get_source_position='[lon1, lat1]',
             get_target_position='[lon2, lat2]',
-            get_color=[0, 255, 0],
+            get_color='color',
             get_width=1)
         
         pointLayer = pdk.Layer(                                     # create the point layer of the PyDeck
@@ -214,6 +226,8 @@ Locationdf_filtered = SelectandFilter(Locationdf)
 
 if Locationdf_filtered is not None:
     IBD_coordsdf = IBD_selector(Locationdf_filtered, IBDdf)
+
+IBD_coordsdf = ColorAssigner(IBD_coordsdf)
 
 st.write("Going into map creation now")
 if IBD_coordsdf is not None and Locationdf_filtered is not None:
