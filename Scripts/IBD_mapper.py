@@ -3,42 +3,44 @@
 '''
 IBD_mapper.py
 
-Description: This program takes 3 input files: a .faa file, the results of a blastp search of that file in .blastp format, and a uniprot database. It then identifies scaffolds in the .faa
-             file that contain genes from a bird species, i.e. whos first match in the blast search was from a bird species.
+Description: This is the script for a streamlit based web application. Two input files (one file with IBD connections and one file with coordinate and time data) are processed with multiple
+             user inputs to create a graphical map showing the spatial positions of the datapoints and their IBD connections.
 
 User-defined functions:
-        ScaffoldIdentifier(fastaName, queryID): This function takes a queryID and searches a provided fasta file for the corresponding scaffold
-        BirdFinder(uniprotName, acList): This function takes a list of species accessions and searches a uniprot database and returns only bird species ids.
-        AcQueryDictCreator(blastpName): This function takes in a file in blastp Format and outputs a dictionary of queryID and species accessions of their first hit in blastp.
+        Fileupload(): handling the file upload into the streamlit interface
+        SelectandFilter(Locationdf): handling the user directed filtering of the input data
+        IBD_selector(Locationdf_filtered, IBDdf): merging the filtered location data with the IBD length fragments, returning a combined dataframe
+        IBD_cutoffFilter(IBD_coordsdf): letting the user further filter the combined dataframe based on IBD length thresholds
+        IBD_normalizer(IBD_coordsdf): creating a new column in the combined dataset with normalized IBD length data
+        IBD_colorizer(IBD_norm): creating a new column in the combined dataset with rgb values according to the normalized data
+        MapCreator(IBD_coordsdf, Locationdf_filtered): using both the filtered location and the combined dataframes to create a map of the positions of samples and their IBD connections
 
+
+        
 Non-standard modules: 
-    sys: here it is used to allow for command line arguments to be passed onto this script
-    
-Procedure:
-    1. Save the command line arguments
-    2. Run AcQueryDictCreator to create a Dictionary of species accessions and query ID
-    3. Run BirdFinder to identify those accessions belonging to birds
-    4. Run ScaffoldIdentifier to find the scaffolds to wich the queryIDs linked to bird genes are found and write them in a simple .txt file
+    streamlit: used to run the interactive interface
+    pandas: used to read in and handle dataframes
+    pydeck: used to create the map
+    matplotlib.pyplot: used to create a histogram to let the user view the distribution of IBD segment lengths
+    matplotlib.cm: used to assign color values to the normalised IBD lengths
 
-Input: AA fasta file, blastp File, uniprot database
-Output: Output txt file
+Procedure:
+    1. Have the user upload their files
+    2. Prompt the user to select which timeframe, countries and indiviuals to display and filter the data accordingly
+    3. Use the filtered location data and the full IBD data to create a merged dataset with all shared IBD lengths for all individuals accross chromosomes
+    4. Plot a histogram of the distribution of all IBD lengths and let the user define cutoff thresholds for IBD length shared between individuals
+    5. Filter the merged/combined dataset according to the user defined IBD thresholds
+    6. Normalize the IBD lengths and use the normalized values to assign colors to each IBD length
+    7. Plot the map by first creating a point layer with all selected data and then a line layer connecting indivuals color coded by the length of their shared IBDs
+
+Input: location_time.xlsx IBD_connections.tsv
+Output: graphical output of the map
     
 Usage:
-python3 datParserAlex.py \
-FastaFile.faa \
-Blastpfile.blastp \
-OutputFile.txt \
-uniprotDatabase.dat
-
-Example: 
-python3 datParserAlex.py \
-../Output/Haemoproteus/ParsedGtf/gffParse.faa \
-../Output/Haemoproteus/ParsedGtf/Haemoproteus_blast.blastp \
-../Output/Haemoproteus/ParsedGtf/birdScaffolds.txt \
-uniprot_sprot.dat
+streamlit run IBD_mapper.py
 
 Version: 1.00
-Date: 2022-03-02
+Date: 2026-03-22
 Name: Alexander Heck
 
 '''
@@ -46,6 +48,8 @@ Name: Alexander Heck
 import streamlit as st
 import pandas as pd
 import pydeck as pdk
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 
 ## Let the User upload their files ##
 
@@ -146,19 +150,42 @@ def IBD_selector(Locationdf_filtered, IBDdf):
     IBD_coordsdf = IBDperPair.merge(coordsdf, left_on='iid1', right_on='Genetic ID', how='left').drop(columns = 'Genetic ID')       # merge coordsdf and IBDperPair together by adding the coords of iid1
     IBD_coordsdf = IBD_coordsdf.merge(coordsdf, left_on='iid2', right_on='Genetic ID', how='left', suffixes = ('1', '2')).drop(columns = 'Genetic ID') # merge a second time adding coords of iid2
     return IBD_coordsdf
-    
-## The follwing function adds a color column to the IBD_coordsdf dataframe ##
+
+
+## The following function allows for further filtering of the IBD and coordinates dataframe
+
+def IBD_cutoffFilter(IBD_coordsdf):
+    # the first step is to give the user an overview over the data by creating a histogram
+    fig, ax = plt.subplots()        # create empty subplots
+    ax.hist(IBD_coordsdf['lengthM'], bins = 100)         # select the column and number of bins
+    ax.set_ylabel("Frequency")                          # set the y-label
+    ax.set_xlabel("IBD length [cM]")                    # set the x-label
+    ax.set_title("Histogram of IBD lengths")            # set the title
+    ax.set_yscale("log")                                # set the 
+    st.pyplot(fig)                                      # have streamlit output the plot
+    st.write("Please select IBD connection thresholds you would like to apply:")
+    ibdMin = st.number_input("Minimum IBD length [cM]:")    # select a minimum ibd length
+    ibdMax = st.number_input("Maximum IBD length [cM]:")    # select a maximum ibd length
+    if ibdMax is not None and ibdMin is not None:           # filter the dataframe if thresholds were selected
+        IBD_coordsdf = IBD_coordsdf[IBD_coordsdf["lengthM"]>=ibdMin]
+        IBD_coordsdf = IBD_coordsdf[IBD_coordsdf["lengthM"]<=ibdMax]    
+    return IBD_coordsdf
+
+## The following function adds a color column to the IBD_coordsdf dataframe ##
 
 @st.cache_data(ttl=3600)
-def ColorAssigner(IBD_coordsdf):
+def IBD_normalizer(IBD_coordsdf):
     # First normalise IBD values to scale from 0 to 1 according to the formula xnorm = (x - xmin)/(xmax-xmin)
     minIBD = IBD_coordsdf['lengthM'].min()
     maxIBD = IBD_coordsdf['lengthM'].max()
     IBD_coordsdf['lengthM_norm'] = (IBD_coordsdf['lengthM']-minIBD)/(maxIBD-minIBD)
-
-    # Then assign continuous color values to each normalised IBD value
-    IBD_coordsdf['color'] = IBD_coordsdf['lengthM_norm'].apply(lambda x: [(1-x)*255, x*255 , 0])
     return IBD_coordsdf
+
+@st.cache_data(ttl=3600)
+def IBD_colorizer(IBD_norm):
+    cmap = cm.get_cmap("plasma")    # save the colornap plasma as cmap
+    r,g,b,_ = cmap(IBD_norm)        # apply the colormap to the current value, saving the output separately as r, g, and b components
+    return [int(r*255), int(g*255), int(b*255)] # return a list with the rgb values times 255
 
 ## render a map with all datapoints ##
 
@@ -178,8 +205,8 @@ def MapCreator(IBD_coordsdf, Locationdf_filtered):
             data=SubsetLocationdf,                                  # using Subsetlocationdf as data
             get_position = '[lon, lat]',                            # the lon and lat columns as data points
             get_radius = 10000,                                     # get a point radius of 10000
-            get_fill_color = [0, 255, 0],
-            pickable=True)                           # make them green
+            get_fill_color = [0, 255, 0],                           # make them green
+            pickable=True)                                          # make them pickable
         
         view_state = pdk.ViewState(                                 # specify the initial viewstate
             latitude=float(SubsetLocationdf["lat"].mean()),         # as the mean of the lat and long coordinates of the plotted points
@@ -188,15 +215,15 @@ def MapCreator(IBD_coordsdf, Locationdf_filtered):
         
         plot_ibd = st.checkbox(label="Plot IBD connections?", value = True)
 
-        if plot_ibd:    
-            lineLayer = pdk.Layer(
-                "LineLayer",
-                data=IBD_coordsdf,
-                get_source_position='[lon1, lat1]',
-                get_target_position='[lon2, lat2]',
-                get_color='color',
-                get_width=1,
-                pickable=True)
+        if plot_ibd:                                                # if the user wants to print the IBD values
+            lineLayer = pdk.Layer(                                  
+                "LineLayer",                                        # create the line layer
+                data=IBD_coordsdf,                                  # using IBD_coordsdf as data
+                get_source_position='[lon1, lat1]',                 # define the source point
+                get_target_position='[lon2, lat2]',                 # define the target point
+                get_color='color',                                  # color according to the column "color"
+                get_width=1,                                        # set width to 1
+                pickable=True)                                      # make them pickable
             st.pydeck_chart(                                            # finally create the map using the above specified layers
                 pdk.Deck(
                     layers=[pointLayer, lineLayer], 
@@ -210,24 +237,16 @@ def MapCreator(IBD_coordsdf, Locationdf_filtered):
 
 ## Finally run all pre defined functions step by step
 
-IBDdf, Locationdf = Fileupload()
+IBDdf, Locationdf = Fileupload()                                    # uploading all files
 
-Locationdf_filtered = SelectandFilter(Locationdf)
+Locationdf_filtered = SelectandFilter(Locationdf)                   # filter dataset
 
 if Locationdf_filtered is not None:
-    IBD_coordsdf = IBD_selector(Locationdf_filtered, IBDdf)
+    IBD_coordsdf = IBD_selector(Locationdf_filtered, IBDdf)         # calculate IBD segments and add everything to one dataframe
+    IBD_coordsdf = IBD_cutoffFilter(IBD_coordsdf)                   # cutoff and filter the merged dataset
+    IBD_coordsdf = IBD_normalizer(IBD_coordsdf)                     # add a column with normalized IBD lengths
+    IBD_coordsdf['color'] = IBD_coordsdf['lengthM_norm'].apply(IBD_colorizer)   # apply the colorize function to every item in the normalized IBD length column
 
-IBD_coordsdf = ColorAssigner(IBD_coordsdf)
-
-st.write("Going into map creation now")
 if IBD_coordsdf is not None and Locationdf_filtered is not None:
-    MapCreator(IBD_coordsdf, Locationdf_filtered)
+    MapCreator(IBD_coordsdf, Locationdf_filtered)                   # create the map output
 
-
-
-'''
-### Further Implemetation ###
-- Caching
-- Color coded IBD thickness
-- Further downstream filtering of strength of IBD connection using scale combine with histogram
-'''
