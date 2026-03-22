@@ -95,7 +95,6 @@ def SelectandFilter(Locationdf):
                                                      'Modern Period (1500 to now)'], index=None)
 
     if timeFrame is not None:                       # if the user has selected a time frame, the following statements filter the Locationdf by date of the individual and put out a filtered dataframe
-        st.write(Locationdf)
         if timeFrame == 'Prehistory (before 5000 BCE)':
             Locationdf_filtered=Locationdf[Locationdf["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]>=7000]
         elif timeFrame == 'Stone Age (5000 - 3000 BCE)':
@@ -115,7 +114,6 @@ def SelectandFilter(Locationdf):
             Locationdf_filtered = Locationdf_filtered[Locationdf_filtered["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]>=500]
         elif timeFrame == 'Modern Period (1500 to now)':
             Locationdf_filtered = Locationdf[Locationdf["Date mean in BP in years before 1950 CE [OxCal mu for a direct radiocarbon date, and average of range for a contextual date]"]<=500]
-        st.write(Locationdf_filtered)                           # write the current filtered dataframe to check    
     else:
         st.warning("Please select a time period.")
         st.stop()    
@@ -137,34 +135,21 @@ def SelectandFilter(Locationdf):
 
 
 ## The following code extracts coordinates and matches them with IBD values if they have any
-'''
-Okay so what this function does, it makes a list of all to plot indiv. Then it goes through every line in the IBD file and checks that both  iid1 and 2 are present in the list,
-if so. If both are present it retrieves the length M, normalises it to values between 0 and 1 and adds a color, and returns the dataframe containing coordinates for each dataoint,
-IBD, normalised IBD, and a color
-'''
+
 @st.cache_data(ttl=3600)
 def IBD_selector(Locationdf_filtered, IBDdf):
-    idList = Locationdf_filtered["Genetic ID"]
-    st.write(idList)
-    st.write(IBDdf)
-    IBDdf_filtered = IBDdf[IBDdf['iid1'].isin(idList) & IBDdf['iid2'].isin(idList)]
-    st.write('writing filtered ibdf')
-    st.write(IBDdf_filtered)
-    IBDperPair = IBDdf_filtered.groupby(["iid1", "iid2"])["lengthM"].sum()
-    IBDperPair = IBDperPair.reset_index()
-    st.write(IBDperPair)
-    coordsdf = Locationdf_filtered[['Genetic ID', 'lon', 'lat']]
-    st.write(coordsdf)
-    IBD_coordsdf = IBDperPair.merge(coordsdf, left_on='iid1', right_on='Genetic ID', how='left').drop(columns = 'Genetic ID')
-    st.write('First merge:')
-    st.write(IBD_coordsdf)
-    IBD_coordsdf = IBD_coordsdf.merge(coordsdf, left_on='iid2', right_on='Genetic ID', how='left', suffixes = ('1', '2')).drop(columns = 'Genetic ID')
-    st.write('2nd merge:')
-    st.write(IBD_coordsdf)
+    idList = Locationdf_filtered["Genetic ID"]                                              # create a list with only the ids of interest
+    IBDdf_filtered = IBDdf[IBDdf['iid1'].isin(idList) & IBDdf['iid2'].isin(idList)]         # create a new list containing only iid1 and iid2 that are in the id List
+    IBDperPair = IBDdf_filtered.groupby(["iid1", "iid2"])["lengthM"].sum()                  # sum up the lengthM per id pair accross chromosomes
+    IBDperPair = IBDperPair.reset_index()                                                   # reset the dataframe index
+    coordsdf = Locationdf_filtered[['Genetic ID', 'lon', 'lat']]                            # save a new dataframe only containing the genetic id, longitude and latitude
+    IBD_coordsdf = IBDperPair.merge(coordsdf, left_on='iid1', right_on='Genetic ID', how='left').drop(columns = 'Genetic ID')       # merge coordsdf and IBDperPair together by adding the coords of iid1
+    IBD_coordsdf = IBD_coordsdf.merge(coordsdf, left_on='iid2', right_on='Genetic ID', how='left', suffixes = ('1', '2')).drop(columns = 'Genetic ID') # merge a second time adding coords of iid2
     return IBD_coordsdf
     
 ## The follwing function adds a color column to the IBD_coordsdf dataframe ##
 
+@st.cache_data(ttl=3600)
 def ColorAssigner(IBD_coordsdf):
     # First normalise IBD values to scale from 0 to 1 according to the formula xnorm = (x - xmin)/(xmax-xmin)
     minIBD = IBD_coordsdf['lengthM'].min()
@@ -173,49 +158,54 @@ def ColorAssigner(IBD_coordsdf):
 
     # Then assign continuous color values to each normalised IBD value
     IBD_coordsdf['color'] = IBD_coordsdf['lengthM_norm'].apply(lambda x: [(1-x)*255, x*255 , 0])
-    st.write(IBD_coordsdf)
     return IBD_coordsdf
 
 ## render a map with all datapoints ##
 
 def MapCreator(IBD_coordsdf, Locationdf_filtered):
     SubsetLocationdf = Locationdf_filtered[["lat", "lon"]]          # first create a subset of the Locationdf to only contain latitude and longitude
-    st.write(SubsetLocationdf)
     st.write("Map creation started")
     SubsetLocationdf = SubsetLocationdf[SubsetLocationdf["lat"].notna()]
     SubsetLocationdf = SubsetLocationdf[SubsetLocationdf["lon"].notna()]
     if SubsetLocationdf.empty:
         st.warning("No individuals selected to display on the map.")
         return
-    datatype = SubsetLocationdf["lon"].dtype
-    st.write("datatype investigated")
-    datatype
     # Generate the map point layer
     if SubsetLocationdf is not None:                                # if the Subsetlocationdf is not None
-        lineLayer = pdk.Layer(
-            "LineLayer",
-            data=IBD_coordsdf,
-            get_source_position='[lon1, lat1]',
-            get_target_position='[lon2, lat2]',
-            get_color='color',
-            get_width=1)
         
         pointLayer = pdk.Layer(                                     # create the point layer of the PyDeck
             "ScatterplotLayer", 
             data=SubsetLocationdf,                                  # using Subsetlocationdf as data
             get_position = '[lon, lat]',                            # the lon and lat columns as data points
             get_radius = 10000,                                     # get a point radius of 10000
-            get_fill_color = [0, 255, 0])                           # make them green
+            get_fill_color = [0, 255, 0],
+            pickable=True)                           # make them green
         
         view_state = pdk.ViewState(                                 # specify the initial viewstate
             latitude=float(SubsetLocationdf["lat"].mean()),         # as the mean of the lat and long coordinates of the plotted points
             longitude=float(SubsetLocationdf["lon"].mean()),
             zoom=5)
         
-        st.pydeck_chart(                                            # finally create the map using the above specified layers
-            pdk.Deck(
-                layers=[pointLayer, lineLayer], 
-                initial_view_state=view_state))
+        plot_ibd = st.checkbox(label="Plot IBD connections?", value = True)
+
+        if plot_ibd:    
+            lineLayer = pdk.Layer(
+                "LineLayer",
+                data=IBD_coordsdf,
+                get_source_position='[lon1, lat1]',
+                get_target_position='[lon2, lat2]',
+                get_color='color',
+                get_width=1,
+                pickable=True)
+            st.pydeck_chart(                                            # finally create the map using the above specified layers
+                pdk.Deck(
+                    layers=[pointLayer, lineLayer], 
+                    initial_view_state=view_state))
+        else:
+            st.pydeck_chart(                                            # finally create the map using the above specified layers
+                pdk.Deck(
+                    layers=[pointLayer], 
+                    initial_view_state=view_state))
         
 
 ## Finally run all pre defined functions step by step
@@ -239,5 +229,5 @@ if IBD_coordsdf is not None and Locationdf_filtered is not None:
 ### Further Implemetation ###
 - Caching
 - Color coded IBD thickness
-- Further downstream filtering of strength of IBD connection using scale
+- Further downstream filtering of strength of IBD connection using scale combine with histogram
 '''
